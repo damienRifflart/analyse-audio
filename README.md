@@ -12,6 +12,8 @@
 
 * 17/12/24: Obtention d'un graphique en temps réel avec l'amplitude par rapport au temps. Ajout d'un bouton pause/démarrer pour fixer le graph et l'analyser.
 
+* 18/12/24: Création des tabs 'Acquisition' et 'Analyse'. Obtention du graphique avec la transformée de Fourier (tab analyse). A faire: bouton pause pour le tab analyse
+
 ## Mes autres projets...
 
 - [Shapy](https://github.com/damienRifflart/Shapy) - An iOs sport application.
@@ -21,4 +23,3 @@
 
 > Gmail: [rifflartdamiencontact@gmail.com](rifflartdamiencontact@gmail.com) &nbsp;&middot;&nbsp;
 > GitHub: [@damienRifflart](https://github.com/damienRifflart) &nbsp;&middot;&nbsp;
-
