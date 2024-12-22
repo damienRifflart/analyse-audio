@@ -14,6 +14,8 @@
 
 * 18/12/24: Création des tabs 'Acquisition' et 'Analyse'. Obtention du graphique avec la transformée de Fourier (tab analyse). A faire: bouton pause pour le tab analyse
 
+* 22/12/24: Bouton pause fonctionnel pour les deux tabs. Création de la fonction analyse_fft pour en déduire une fréquence fondamentale (marche 2/3 du temps mais capte malgré tout des fréquences issues du bruit).
+
 ## Mes autres projets...
 
 - [Shapy](https://github.com/damienRifflart/Shapy) - An iOs sport application.

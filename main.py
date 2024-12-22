@@ -19,7 +19,7 @@ class AudioStream(QtWidgets.QWidget):
         self.tab_widget.addTab(self.analyseTab, "Analyse")
 
         # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.open
-        # parametres
+        # parametres prise du son
         self.chunk = 1024 # divise le flux en petit blocs de 1024 échantillons (= mesure de l'amplitude à un instant donné)
         self.format = pyaudio.paInt16  # chaque échantillon est codé sur 16 bits (2 octets)
         self.channels = 1  # 1 = mono (son n'est pas spatiale) / 2 = stéréo
@@ -37,8 +37,22 @@ class AudioStream(QtWidgets.QWidget):
             input = True # spécifie que le flux doit capturer de l'audio (input=entré)
         )
 
+        # button pause
+        self.pause_state = False
+        self.pause_btn = QtWidgets.QPushButton("Pause ⏸️")
+        self.pause_btn.clicked.connect(self.pause)
+        self.pause_btn.setFixedWidth(100)
+
         layout = QtWidgets.QVBoxLayout(self) # créé un layout vertical
+        layout.addWidget(self.pause_btn)
         layout.addWidget(self.tab_widget)
+
+        # paramètres analyse après fft
+        self.fundamental_freqs = []
+        self.noise_threshold = 30000
+        self.min_freq = 400
+        self.max_freq = 1000
+
         self.initTabAcquisition()
         self.initTabAnalyse()
 
@@ -53,19 +67,12 @@ class AudioStream(QtWidgets.QWidget):
         plot.setLabel("left", "Amplitude (UA)")
         self.curve_acquisition = plot.plot(pen='cyan') # on plot une ligne ou courbe qui représentera les valeurs
 
-        # button pause
-        self.pause_state = False
-        self.pause_btn = QtWidgets.QPushButton("Pause ⏸️")
-        self.pause_btn.clicked.connect(self.pause)
-        self.pause_btn.setFixedWidth(100)
-
         # https://doc.qt.io/qtforpython-5/PySide2/QtCore/QTimer.html
         # timer: toutes les x secondes, on recapture les échantillons
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_acquisition)
         self.timer.start(30) # toutes les 30ms
 
-        layout.addWidget(self.pause_btn)
         layout.addWidget(plot)
 
     def initTabAnalyse(self):
@@ -79,11 +86,21 @@ class AudioStream(QtWidgets.QWidget):
         plot.setLabel("left", "Amplitude (UA)")
         self.curve_analyse = plot.plot(pen='cyan') # on plot une ligne ou courbe qui représentera les valeurs
 
+        # ligne pour le seuil de bruit
+        self.noise_threshold_line = pg.InfiniteLine(self.noise_threshold, angle=0, pen=pg.mkPen('r', width=2))
+        plot.addItem(self.noise_threshold_line)
+
+        # ligne pour la fréquence minimale
+        self.min_freq_line = pg.InfiniteLine(self.min_freq, angle=90, pen=pg.mkPen('g', width=2))
+        plot.addItem(self.min_freq_line)
+
+        # ligne pour la fréquence maximale
+        self.max_freq_line = pg.InfiniteLine(self.max_freq, angle=90, pen=pg.mkPen('g', width=2))
+        plot.addItem(self.max_freq_line)
+
         # https://doc.qt.io/qtforpython-5/PySide2/QtCore/QTimer.html
         # timer: toutes les x secondes, on recapture les échantillons
-        self.timer_analyse = QtCore.QTimer()
-        self.timer_analyse.timeout.connect(self.update_analyse)
-        self.timer_analyse.start(30) # toutes les 30ms
+        self.timer.timeout.connect(self.update_analyse)
 
         layout.addWidget(plot)
 
@@ -121,15 +138,52 @@ class AudioStream(QtWidgets.QWidget):
         # transformée de Fourier (FFT)
         # https://numpy.org/doc/2.1/reference/generated/numpy.fft.rfft.html
         # on utilise rfft car data contient des nombres réels (pas complexes).
-        fft_data = np.abs(np.fft.rfft(data_table))
+        self.fft_data = np.abs(np.fft.rfft(data_table))
         
         # calcul des fréquences correspondantes
         # shttps://numpy.org/doc/2.1/reference/generated/numpy.fft.rfftfreq.html
         # rfftfreq génère un tableau contenant les fréquences correspondantes aux données FFT.
-        freqs = np.fft.rfftfreq(len(data_table), d=1/self.rate)
+        self.freqs = np.fft.rfftfreq(len(data_table), d=1/self.rate)
         
-        # Mettre à jour le graphique d'analyse
-        self.curve_analyse.setData(x=freqs, y=fft_data)
+        # fonction pour avori la fréquence fondamentale
+        fundamental = self.analyse_fft()
+        if fundamental is not None: # si il y en a une
+            print(f"Fréquence fondamentale: {fundamental:.1f}Hz") # tronque à 1 chiffre après la virgule
+
+        # mettre à jour le graphique d'analyse
+        self.curve_analyse.setData(x=self.freqs, y=self.fft_data)
+
+    def analyse_fft(self):
+        # masque pour filtrer les fréquences trop hautes/basses
+        freq_mask = (self.freqs >= self.min_freq) & (self.freqs <= self.max_freq)
+        
+        # filtrer les données FFT et les fréquences correspondantes
+        filtered_fft = self.fft_data[freq_mask]
+        filtered_freqs = self.freqs[freq_mask]
+        
+        # calcul du bruit moyen
+        avg_noise = np.mean(filtered_fft)
+        
+        # trouver le pic avec la plus grande amplitude grâce au tri par sélection insertion
+        max_amp = 0 # on définit de base une amplitude max à 0
+        fundamental_freq = None
+
+        for i, amp in enumerate(filtered_fft):
+            if amp > max_amp:
+                max_amp = amp
+
+                # on regarder si l'amplitude est supérieur à 3 fois le bruit moyen pour la comptabiliser
+                if amp > 3 * avg_noise:
+                    max_freq = filtered_freqs[i]
+                    self.fundamental_freqs.append(max_freq)
+
+        # pour avoir une valeur représentative, on fait la moyenne de 3 fréquences mesurées
+        if len(self.fundamental_freqs) > 3:
+            fundamental_freq = np.mean(self.fundamental_freqs)
+            # et on réinitialise la liste
+            self.fundamental_freqs = []
+
+        return fundamental_freq
 
     def pause(self):
         self.pause_state = not self.pause_state
