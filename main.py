@@ -1,10 +1,6 @@
-import struct
-import numpy as np
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QLabel
-import pyqtgraph as pg
-import pyaudio
-import sys
+from PySide6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox
+import pyaudio, math, sys, numpy as np, struct, pyqtgraph as pg
 
 class AudioStream(QtWidgets.QWidget):
     def __init__(self):
@@ -14,9 +10,11 @@ class AudioStream(QtWidgets.QWidget):
         self.tab_widget = QTabWidget()
         self.acquisitionTab = QWidget()
         self.analyseTab = QWidget()
+        self.parametreTab = QWidget()
 
         self.tab_widget.addTab(self.acquisitionTab, "Acquisition")
         self.tab_widget.addTab(self.analyseTab, "Analyse")
+        self.tab_widget.addTab(self.parametreTab, "Paramètres")
 
         # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.open
         # parametres prise du son
@@ -49,12 +47,28 @@ class AudioStream(QtWidgets.QWidget):
 
         # paramètres analyse après fft
         self.fundamental_freqs = []
+        self.fundamental_freq = None
         self.noise_threshold = 30000
-        self.min_freq = 400
-        self.max_freq = 1000
+        self.min_freq = 250
+        self.max_freq = 1100
 
         self.initTabAcquisition()
         self.initTabAnalyse()
+        self.initTabParametres()
+
+    # https://stackoverflow.com/questions/64505024/turning-frequencies-into-notes-in-python
+    def freq_to_note(self, freq):
+        notes = ['La', 'La#', 'Si', 'Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#']
+
+        note_number = 12 * math.log2(freq / 440) + 49  
+        note_number = round(note_number)
+            
+        note = (note_number - 1 ) % len(notes)
+        note = notes[note]
+        
+        octave = (note_number + 8 ) // len(notes)
+        
+        return f"{note}{octave}"
 
     def initTabAcquisition(self):
         layout = QVBoxLayout(self.acquisitionTab)
@@ -76,7 +90,8 @@ class AudioStream(QtWidgets.QWidget):
         layout.addWidget(plot)
 
     def initTabAnalyse(self):
-        layout = QVBoxLayout(self.analyseTab)
+        # layout horizontal
+        layout = QtWidgets.QHBoxLayout(self.analyseTab)
 
         # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
         # graphique
@@ -102,7 +117,56 @@ class AudioStream(QtWidgets.QWidget):
         # timer: toutes les x secondes, on recapture les échantillons
         self.timer.timeout.connect(self.update_analyse)
 
-        layout.addWidget(plot)
+
+        # panel de droite pour afficher les fréquences détéctées
+        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QVBoxLayout.html
+        self.freq_panel = QWidget()  # créé un widget pour montrer les fréquences
+
+        freq_layout = QVBoxLayout(self.freq_panel)  # créé un layout vertical pour le widget
+        self.fundamental_label = QLabel(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq}")
+        self.fundamental_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.fundamental_label.setStyleSheet("font-size: 30px;")
+        freq_layout.addWidget(self.fundamental_label)  # ajoute le label au layout
+        
+        layout.addWidget(plot, stretch=2) # prend 2/3 du tab
+        layout.addWidget(self.freq_panel, stretch=1) # prend 1/3 du tab
+
+    def initTabParametres(self):
+        layout = QVBoxLayout(self.parametreTab)
+
+        # slider pour le seuil de bruit
+        self.noise_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.noise_slider.setMinimum(0)
+        self.noise_slider.setMaximum(40000)
+        self.noise_slider.setValue(self.noise_threshold)
+        self.noise_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.noise_slider.setTickInterval(2500)
+        self.noise_slider.valueChanged.connect(self.update_noise_threshold)
+
+        # slider pour la fréquence minimale
+        self.min_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.min_freq_slider.setMinimum(0)
+        self.min_freq_slider.setMaximum(3000)
+        self.min_freq_slider.setValue(self.min_freq)
+        self.min_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.min_freq_slider.setTickInterval(100)
+        self.min_freq_slider.valueChanged.connect(self.update_min_freq)
+
+        # slider pour la fréquence maximale
+        self.max_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.max_freq_slider.setMinimum(0)
+        self.max_freq_slider.setMaximum(3000)
+        self.max_freq_slider.setValue(self.max_freq)
+        self.max_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.max_freq_slider.setTickInterval(100)
+        self.max_freq_slider.valueChanged.connect(self.update_max_freq)
+
+        layout.addWidget(QLabel("Seuil de bruit"))
+        layout.addWidget(self.noise_slider)
+        layout.addWidget(QLabel("Fréquence minimale"))
+        layout.addWidget(self.min_freq_slider)
+        layout.addWidget(QLabel("Fréquence maximale"))
+        layout.addWidget(self.max_freq_slider)
 
     def update_acquisition(self):
         # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
@@ -145,10 +209,8 @@ class AudioStream(QtWidgets.QWidget):
         # rfftfreq génère un tableau contenant les fréquences correspondantes aux données FFT.
         self.freqs = np.fft.rfftfreq(len(data_table), d=1/self.rate)
         
-        # fonction pour avori la fréquence fondamentale
-        fundamental = self.analyse_fft()
-        if fundamental is not None: # si il y en a une
-            print(f"Fréquence fondamentale: {fundamental:.1f}Hz") # tronque à 1 chiffre après la virgule
+        # fonction pour avoir la fréquence fondamentale
+        self.analyse_fft()
 
         # mettre à jour le graphique d'analyse
         self.curve_analyse.setData(x=self.freqs, y=self.fft_data)
@@ -162,11 +224,13 @@ class AudioStream(QtWidgets.QWidget):
         filtered_freqs = self.freqs[freq_mask]
         
         # calcul du bruit moyen
-        avg_noise = np.mean(filtered_fft)
+        if len(filtered_fft) > 0:
+            avg_noise = np.mean(filtered_fft)
+        else:
+            avg_noise = 0
         
         # trouver le pic avec la plus grande amplitude grâce au tri par sélection insertion
         max_amp = 0 # on définit de base une amplitude max à 0
-        fundamental_freq = None
 
         for i, amp in enumerate(filtered_fft):
             if amp > max_amp:
@@ -179,11 +243,10 @@ class AudioStream(QtWidgets.QWidget):
 
         # pour avoir une valeur représentative, on fait la moyenne de 3 fréquences mesurées
         if len(self.fundamental_freqs) > 3:
-            fundamental_freq = np.mean(self.fundamental_freqs)
-            # et on réinitialise la liste
+            self.fundamental_freq = np.mean(self.fundamental_freqs)
+            note = self.freq_to_note(self.fundamental_freq)
+            self.fundamental_label.setText(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq:.2f} Hz ({note})") # update le texte du label
             self.fundamental_freqs = []
-
-        return fundamental_freq
 
     def pause(self):
         self.pause_state = not self.pause_state
@@ -196,6 +259,39 @@ class AudioStream(QtWidgets.QWidget):
             self.pause_btn.setText("Pause ⏸️")
             self.timer.start()
         
+    def update_noise_threshold(self, value):
+        self.noise_threshold = value
+        self.noise_threshold_line.setValue(value)
+
+    def update_min_freq(self, value):
+        print(self.max_freq, value)
+        if value <= self.max_freq:
+            self.min_freq = value
+            self.min_freq_line.setValue(value)
+        else:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setInformativeText('La fréquence minimale doit être inférieure à la fréquence maximale.')
+            msg.setWindowTitle("Erreur")
+            msg.exec()
+
+            self.min_freq_slider.setValue(self.max_freq-100)
+            self.min_freq = self.max_freq-100
+
+    def update_max_freq(self, value):
+        if value >= self.min_freq:
+            self.max_freq = value
+            self.max_freq_line.setValue(value)
+        else:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setInformativeText('La fréquence maximale doit être supérieure à la fréquence minimale.')
+            msg.setWindowTitle("Erreur")
+            msg.exec()
+
+            self.max_freq_slider.setValue(self.min_freq+100)
+            self.max_freq = self.min_freq+100
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
 
