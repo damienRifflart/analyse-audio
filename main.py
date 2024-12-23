@@ -264,7 +264,6 @@ class AudioStream(QtWidgets.QWidget):
         self.noise_threshold_line.setValue(value)
 
     def update_min_freq(self, value):
-        print(self.max_freq, value)
         if value <= self.max_freq:
             self.min_freq = value
             self.min_freq_line.setValue(value)

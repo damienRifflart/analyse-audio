@@ -16,7 +16,7 @@
 
 * 22/12/24: Bouton pause fonctionnel pour les deux tabs. Création de la fonction analyse_fft pour en déduire une fréquence fondamentale (marche 2/3 du temps mais capte malgré tout des fréquences issues du bruit).
 
-* 23/12/24: Widget pour montrer la fréquence fondamentale et indication sur la note jouée.
+* 23/12/24: Widget pour montrer la fréquence fondamentale et indication sur la note jouée. Ajout d'un tab paramètre pour modifier notamment les paramètres d'analyses de la FFT. Message d'erreur si la fréquence min est supérieur à la fréquence max et inversement.
 
 ## Mes autres projets...
 
