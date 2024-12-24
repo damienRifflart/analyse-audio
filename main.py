@@ -1,6 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox
-import pyaudio, math, sys, numpy as np, struct, pyqtgraph as pg
+import pyaudio, math, sys, numpy as np, struct, pyqtgraph as pg, wave
 
 class AudioStream(QtWidgets.QWidget):
     def __init__(self):
@@ -8,12 +8,15 @@ class AudioStream(QtWidgets.QWidget):
 
         # tabs
         self.tab_widget = QTabWidget()
+        
         self.acquisitionTab = QWidget()
         self.analyseTab = QWidget()
         self.parametreTab = QWidget()
+        self.fichierTab = QWidget()
 
         self.tab_widget.addTab(self.acquisitionTab, "Acquisition")
         self.tab_widget.addTab(self.analyseTab, "Analyse")
+        self.tab_widget.addTab(self.fichierTab, "Fichier")
         self.tab_widget.addTab(self.parametreTab, "Paramètres")
 
         # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.open
@@ -27,7 +30,6 @@ class AudioStream(QtWidgets.QWidget):
 
         # flux audio
         self.stream = self.audio.open(
-            # on spécifie les différents paramètres dit en haut
             format = self.format, 
             channels = self.channels,
             rate = self.rate,
@@ -46,60 +48,55 @@ class AudioStream(QtWidgets.QWidget):
         layout.addWidget(self.tab_widget)
 
         # paramètres analyse après fft
-        self.fundamental_freqs = []
-        self.fundamental_freq = None
+        self.fundamental_freqs = {'live': [], 'file': []}
+        self.fundamental_freq = {'live': None, 'file': None}
+        self.fundamental_label = {'live': '', 'file': ''}
         self.noise_threshold = 30000
         self.min_freq = 250
         self.max_freq = 1100
 
         self.initTabAcquisition()
         self.initTabAnalyse()
+        self.initTabFichier()
         self.initTabParametres()
 
-    # https://stackoverflow.com/questions/64505024/turning-frequencies-into-notes-in-python
     def freq_to_note(self, freq):
+        # https://stackoverflow.com/questions/64505024/turning-frequencies-into-notes-in-python
         notes = ['La', 'La#', 'Si', 'Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#']
-
         note_number = 12 * math.log2(freq / 440) + 49  
         note_number = round(note_number)
-            
         note = (note_number - 1 ) % len(notes)
         note = notes[note]
-        
         octave = (note_number + 8 ) // len(notes)
-        
         return f"{note}{octave}"
 
-    def initTabAcquisition(self):
-        layout = QVBoxLayout(self.acquisitionTab)
-
+    def createPlotWidget(self, x_label="", y_label="Amplitude (UA)"):
         # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
         # graphique
         plot = pg.PlotWidget() # composant de PyQtGraph: permet d'afficher des graphiques 2D
-        plot.setYRange(-4000, 4000) # comme c'est codé 16 bits: 2^16 / 2 = 32 768. Les valeurs vont de -32 768 au min à 32 767 au max
-        plot.setLabel("bottom", "Temps (s)")
-        plot.setLabel("left", "Amplitude (UA)")
-        self.curve_acquisition = plot.plot(pen='cyan') # on plot une ligne ou courbe qui représentera les valeurs
+        plot.setYRange(-4000, 4000) # comme c'est codé sur 16 bits: 2^15 = 32 768. Les valeurs vont de -32 768 au min à 32 767 au max
+        plot.setLabel("bottom", x_label)
+        plot.setLabel("left", y_label)
+        return plot
+
+    def initTabAcquisition(self):
+        layout = QVBoxLayout(self.acquisitionTab)
+        plot = self.createPlotWidget(x_label="Temps (s)")
+        self.curve_acquisition = plot.plot(pen='cyan')  # on plot une ligne ou courbe qui contiendra les valeurs
 
         # https://doc.qt.io/qtforpython-5/PySide2/QtCore/QTimer.html
         # timer: toutes les x secondes, on recapture les échantillons
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_acquisition)
+        self.timer.timeout.connect(self.update_analyse)
         self.timer.start(30) # toutes les 30ms
 
         layout.addWidget(plot)
 
     def initTabAnalyse(self):
-        # layout horizontal
         layout = QtWidgets.QHBoxLayout(self.analyseTab)
-
-        # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
-        # graphique
-        plot = pg.PlotWidget() # composant de PyQtGraph: permet d'afficher des graphiques 2D
-        plot.setYRange(-4000, 4000) # comme c'est codé 16 bits: 2^16 / 2 = 32 768. Les valeurs vont de -32 768 au min à 32 767 au max
-        plot.setLabel("bottom", "Fréquences (Hz)")
-        plot.setLabel("left", "Amplitude (UA)")
-        self.curve_analyse = plot.plot(pen='cyan') # on plot une ligne ou courbe qui représentera les valeurs
+        plot = self.createPlotWidget(x_label="Fréquences (Hz)")
+        self.curve_analyse = plot.plot(pen='cyan')# on plot une ligne ou courbe qui contiendra les valeurs
 
         # ligne pour le seuil de bruit
         self.noise_threshold_line = pg.InfiniteLine(self.noise_threshold, angle=0, pen=pg.mkPen('r', width=2))
@@ -113,27 +110,163 @@ class AudioStream(QtWidgets.QWidget):
         self.max_freq_line = pg.InfiniteLine(self.max_freq, angle=90, pen=pg.mkPen('g', width=2))
         plot.addItem(self.max_freq_line)
 
-        # https://doc.qt.io/qtforpython-5/PySide2/QtCore/QTimer.html
-        # timer: toutes les x secondes, on recapture les échantillons
-        self.timer.timeout.connect(self.update_analyse)
-
-
-        # panel de droite pour afficher les fréquences détéctées
+        # panel à droite pour afficher les fréquences détéctées
         # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QVBoxLayout.html
-        self.freq_panel = QWidget()  # créé un widget pour montrer les fréquences
-
-        freq_layout = QVBoxLayout(self.freq_panel)  # créé un layout vertical pour le widget
-        self.fundamental_label = QLabel(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq}")
-        self.fundamental_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.fundamental_label.setStyleSheet("font-size: 30px;")
-        freq_layout.addWidget(self.fundamental_label)  # ajoute le label au layout
-        
+        self.freq_panel = QWidget() # créé un widget pour montrer les fréquences
+        freq_layout = QVBoxLayout(self.freq_panel)
+        self.fundamental_label['live'] = QLabel(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq['live']}")
+        self.fundamental_label['live'].setAlignment(QtCore.Qt.AlignCenter)
+        self.fundamental_label['live'].setStyleSheet("font-size: 30px;")
+        freq_layout.addWidget(self.fundamental_label['live']) # ajoute le label au layout
+    
         layout.addWidget(plot, stretch=2) # prend 2/3 du tab
         layout.addWidget(self.freq_panel, stretch=1) # prend 1/3 du tab
+
+    def initTabFichier(self):
+        layout = QtWidgets.QVBoxLayout(self.fichierTab) # layout vertical
+
+        # boutton pour ouvrir un fichier
+        open_file_btn = QtWidgets.QPushButton("Ouvrir un fichier audio")
+        open_file_btn.clicked.connect(self.open_file_dialog)
+        layout.addWidget(open_file_btn)
+
+        # horizontal layout for plot and frequency panel
+        h_layout = QtWidgets.QHBoxLayout()
+        
+        plot = self.createPlotWidget(x_label="Fréquences (Hz)")
+        self.file_curve = plot.plot(pen='cyan') # on plot une ligne ou courbe qui contiendra les valeurs
+        
+        self.freq_panel_file = QWidget() # créé un widget pour montrer les fréquences
+        freq_layout = QVBoxLayout(self.freq_panel_file) # créé un layout vertical pour le widget
+        self.fundamental_label['file'] = QLabel(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq['file']}")
+        self.fundamental_label['file'].setAlignment(QtCore.Qt.AlignCenter)
+        self.fundamental_label['file'].setStyleSheet("font-size: 30px;")
+        freq_layout.addWidget(self.fundamental_label['file']) # ajoute le label au layout
+    
+        h_layout.addWidget(plot, stretch=2) # prend 2/3 du tab
+        h_layout.addWidget(self.freq_panel_file, stretch=1) # prend 1/3 du tab
+
+        layout.addLayout(h_layout)
+
+    def process_audio_data(self, data, data_type='int16'):
+        # conversion des données en un tableau lisible par Numpy
+        # data est une séquence d'octets au format binaire, que Numpy ne peut pas directement traiter.
+        # struct.unpack convertit ces octets en valeurs numériques (ex. : 7, -8, 11)
+
+        # https://docs.python.org/3/library/struct.html#struct.unpack
+        # on récupère le nombre d'octets: 1024 échantillons codés sur 16 bits (2 octets), donc 1024 * 2 = 2048 octets
+        # on rajoute B pour byte ou octet en français, ça permet de préciser à la fonction unpack que ce sont 2048 octets
+        num_octets = f"{2 * self.chunk}B"
+        unpacked_data = struct.unpack(num_octets, data)
+
+        # une fois qu'on a des valeurs numériques, il faut les convertir en un tableau Numpy (de type data_type bits)
+        data_table = np.array(unpacked_data, dtype=getattr(np, data_type))
+        return data_table[::2]  # slice le tableau pour prendre qu'un élement sur deux (=> flux mono). Syntaxe: sequence[start:end:step]
+
+    def analyse_fft(self, data_table, mode='live'):
+        # transformée de Fourier (FFT)
+        # https://numpy.org/doc/2.1/reference/generated/numpy.fft.rfft.html
+        # on utilise rfft car data contient des nombres réels (pas complexes).
+        fft_data = np.abs(np.fft.rfft(data_table))
+
+        # calcul des fréquences correspondantes
+        # shttps://numpy.org/doc/2.1/reference/generated/numpy.fft.rfftfreq.html
+        # rfftfreq génère un tableau contenant les fréquences correspondantes aux données FFT.
+        freqs = np.fft.rfftfreq(len(data_table), d=1/self.rate)
+        
+        # filtrage des fréquences (masque)
+        freq_mask = (freqs >= self.min_freq) & (freqs <= self.max_freq)
+        # filtrer les données FFT et les fréquences correspondantes
+        filtered_fft = fft_data[freq_mask]
+        filtered_freqs = freqs[freq_mask]
+        
+        # calcul du bruit moyen
+        if len(filtered_fft) > 0:
+            avg_noise = np.mean(filtered_fft)
+        else:
+            avg_noise = 0
+
+        # trouver le pic avec la plus grande amplitude grâce au tri par sélection insertion
+        # on définit de base une amplitude max à 0
+        max_amp = 0    
+        
+        for i, amp in enumerate(filtered_fft):
+            if amp > max_amp and amp > 3 * avg_noise: # on regarder si l'amplitude est supérieur à 3 fois le bruit moyen pour la comptabiliser
+                self.fundamental_freqs[mode].append(filtered_freqs[i])
+
+        # pour avoir une valeur représentative, on fait la moyenne de 3 fréquences mesurées
+        if len(self.fundamental_freqs[mode]) > 3:
+            self.fundamental_freq[mode] = np.mean(self.fundamental_freqs[mode])
+            note = self.freq_to_note(self.fundamental_freq[mode])
+            label = self.fundamental_label[mode]
+
+            # on met à jour le label avec la fréquence fondamentale détéctée
+            label.setText(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq[mode]:.2f} Hz ({note})")
+            self.fundamental_freqs[mode] = []
+            
+        return freqs, fft_data
+
+    def update_acquisition(self):
+        if not self.pause_state:
+            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
+            # self.chunk représente le nombre d'échantillons à capturer
+            data = self.stream.read(self.chunk)
+            data_table = self.process_audio_data(data) # tableau numpy
+            self.curve_acquisition.setData(data_table) # mise à jour des valeurs du plot
+
+    def update_analyse(self):
+        if not self.pause_state:
+            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
+            # self.chunk représente le nombre d'échantillons à capturer
+            data = self.stream.read(self.chunk)
+            data_table = self.process_audio_data(data) # tableau numpy
+            freqs, fft_data = self.analyse_fft(data_table, 'live') # fft
+            self.curve_analyse.setData(x=freqs, y=fft_data) # mise à jour des valeurs du plot
+
+    def process_file(self, file_path):
+        try:
+            with wave.open(file_path, 'rb') as wf: # ouvrir le fichier audio en lecture seule (rb = read binary)
+                num_frames = wf.getnframes() # return le nombre de frames (échantillons) dans le fichier audio
+                sampwidth = wf.getsampwidth() # return le nombre d'octets par échantillons
+                num_channels = wf.getnchannels() # return le nombre de channels (1 = mono, 2 = stéréo)
+                
+                frames = wf.readframes(num_frames)
+                # connaître le nombre d'octets par échantillon
+                if sampwidth == 1: # si il y a un octet par échantillon
+                    format = f"{num_frames * num_channels}B"  # 8-bit
+                elif sampwidth == 2: # si il y a deux...
+                    format = f"{num_frames * num_channels}h"  # 16-bit audio
+                elif sampwidth == 3:
+                    format = f"{num_frames * num_channels}i"  # 24-bit audio
+                elif sampwidth == 4:
+                    format = f"{num_frames * num_channels}i"  # 32-bit audio
+                else:
+                    print(f"Nombre d'échantillons non supportée: {sampwidth} octets.")
+                    
+                # https://docs.python.org/3/library/struct.html#struct.unpack
+                unpacked_data = struct.unpack(format, frames)
+                if sampwidth == 1:
+                    data = np.array(unpacked_data, dtype=np.int8)
+                elif sampwidth == 2:
+                    data = np.array(unpacked_data, dtype=np.int16)
+                elif sampwidth == 3 or 4:
+                    data = np.array(unpacked_data, dtype=np.int32)
+
+                # garder uniquement un canal (flux mono)
+                if num_channels == 2:
+                    data = data[::2]  # on prend un échantillon sur deux
+
+                freqs, fft_data = self.analyse_fft(data, 'file')
+                self.file_curve.setData(x=freqs, y=fft_data)
+        except wave.Error as e:
+            self.show_error_message(f"Erreur lors de l'ouverture du fichier: {e}")
+        except Exception as e:
+            self.show_error_message(f"Erreur lors du traitement du fichier: {e}")
 
     def initTabParametres(self):
         layout = QVBoxLayout(self.parametreTab)
 
+        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QSlider.html
         # slider pour le seuil de bruit
         self.noise_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.noise_slider.setMinimum(0)
@@ -141,7 +274,7 @@ class AudioStream(QtWidgets.QWidget):
         self.noise_slider.setValue(self.noise_threshold)
         self.noise_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
         self.noise_slider.setTickInterval(2500)
-        self.noise_slider.valueChanged.connect(self.update_noise_threshold)
+        self.noise_slider.valueChanged.connect(self.update_noise)
 
         # slider pour la fréquence minimale
         self.min_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -167,99 +300,23 @@ class AudioStream(QtWidgets.QWidget):
         layout.addWidget(self.min_freq_slider)
         layout.addWidget(QLabel("Fréquence maximale"))
         layout.addWidget(self.max_freq_slider)
-
-    def update_acquisition(self):
-        # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
-        # self.chunk représente le nombre d'échantillons à capturer
-        data = self.stream.read(self.chunk)
-
-        # Conversion des données en un tableau lisible par Numpy
-        # data est une séquence d'octets au format binaire, que Numpy ne peut pas directement traiter.
-        # struct.unpack convertit ces octets en valeurs numériques (ex. : 7, -8, 11)
-
-        # https://docs.python.org/3/library/struct.html#struct.unpack
-        # on récupère le nombre d'octets: 1024 échantillons codés sur 16 bits (2 octets), donc 1024 * 2 = 2048 octets
-        # on rajoute B pour byte ou octet en français, ça permet de préciser à la fonction unpack que ce sont 2048 octets
-        num_octets = f"{2 * self.chunk}B"
-        unpacked_data = struct.unpack(num_octets, data) # décode les octets de data en valeurs numériques
-
-        # une fois qu'on a des valeurs numériques, il faut les convertir en un tableau Numpy (de type 16 bits)
-        data_table = np.array(unpacked_data, dtype=np.int16)
-        data_table = data_table[::2] # slice le tableau pour prendre qu'un élement sur deux (=> flux mono). Syntaxe: sequence[start:end:step]
-        
-        # mettre à jour les données du graph
-        self.curve_acquisition.setData(data_table)
-
-    def update_analyse(self):
-        data = self.stream.read(self.chunk)
-        
-        # converti data en un tableau de valeurs numériques
-        num_octets = f"{2 * self.chunk}B"
-        unpacked_data = struct.unpack(num_octets, data)
-        data_table = np.array(unpacked_data, dtype=np.int16)
-        data_table = data_table[::2]  # flux mono
-        
-        # transformée de Fourier (FFT)
-        # https://numpy.org/doc/2.1/reference/generated/numpy.fft.rfft.html
-        # on utilise rfft car data contient des nombres réels (pas complexes).
-        self.fft_data = np.abs(np.fft.rfft(data_table))
-        
-        # calcul des fréquences correspondantes
-        # shttps://numpy.org/doc/2.1/reference/generated/numpy.fft.rfftfreq.html
-        # rfftfreq génère un tableau contenant les fréquences correspondantes aux données FFT.
-        self.freqs = np.fft.rfftfreq(len(data_table), d=1/self.rate)
-        
-        # fonction pour avoir la fréquence fondamentale
-        self.analyse_fft()
-
-        # mettre à jour le graphique d'analyse
-        self.curve_analyse.setData(x=self.freqs, y=self.fft_data)
-
-    def analyse_fft(self):
-        # masque pour filtrer les fréquences trop hautes/basses
-        freq_mask = (self.freqs >= self.min_freq) & (self.freqs <= self.max_freq)
-        
-        # filtrer les données FFT et les fréquences correspondantes
-        filtered_fft = self.fft_data[freq_mask]
-        filtered_freqs = self.freqs[freq_mask]
-        
-        # calcul du bruit moyen
-        if len(filtered_fft) > 0:
-            avg_noise = np.mean(filtered_fft)
-        else:
-            avg_noise = 0
-        
-        # trouver le pic avec la plus grande amplitude grâce au tri par sélection insertion
-        max_amp = 0 # on définit de base une amplitude max à 0
-
-        for i, amp in enumerate(filtered_fft):
-            if amp > max_amp:
-                max_amp = amp
-
-                # on regarder si l'amplitude est supérieur à 3 fois le bruit moyen pour la comptabiliser
-                if amp > 3 * avg_noise:
-                    max_freq = filtered_freqs[i]
-                    self.fundamental_freqs.append(max_freq)
-
-        # pour avoir une valeur représentative, on fait la moyenne de 3 fréquences mesurées
-        if len(self.fundamental_freqs) > 3:
-            self.fundamental_freq = np.mean(self.fundamental_freqs)
-            note = self.freq_to_note(self.fundamental_freq)
-            self.fundamental_label.setText(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq:.2f} Hz ({note})") # update le texte du label
-            self.fundamental_freqs = []
+    
+    def open_file_dialog(self):
+        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QFileDialog.html
+        file_dialog = QtWidgets.QFileDialog(self)
+        file_dialog.setNameFilter("Audio Files (*.wav)")
+        if file_dialog.exec():
+            self.process_file(file_dialog.selectedFiles()[0])
 
     def pause(self):
         self.pause_state = not self.pause_state
-
+        self.pause_btn.setText("Démarrer ▶️" if self.pause_state else "Pause ⏸️")
         if self.pause_state:
             self.timer.stop()
-            self.pause_btn.setText("Démarrer ▶️")
-
         else:
-            self.pause_btn.setText("Pause ⏸️")
             self.timer.start()
-        
-    def update_noise_threshold(self, value):
+    
+    def update_noise(self, value):
         self.noise_threshold = value
         self.noise_threshold_line.setValue(value)
 
@@ -268,12 +325,7 @@ class AudioStream(QtWidgets.QWidget):
             self.min_freq = value
             self.min_freq_line.setValue(value)
         else:
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setInformativeText('La fréquence minimale doit être inférieure à la fréquence maximale.')
-            msg.setWindowTitle("Erreur")
-            msg.exec()
-
+            self.show_error_message('La fréquence minimale doit être inférieure à la fréquence maximale.')
             self.min_freq_slider.setValue(self.max_freq-100)
             self.min_freq = self.max_freq-100
 
@@ -282,21 +334,21 @@ class AudioStream(QtWidgets.QWidget):
             self.max_freq = value
             self.max_freq_line.setValue(value)
         else:
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
-            msg.setInformativeText('La fréquence maximale doit être supérieure à la fréquence minimale.')
-            msg.setWindowTitle("Erreur")
-            msg.exec()
-
+            self.show_error_message('La fréquence maximale doit être supérieure à la fréquence minimale.')
             self.max_freq_slider.setValue(self.min_freq+100)
             self.max_freq = self.min_freq+100
 
+    def show_error_message(self, message):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Critical)
+        msg.setInformativeText(message)
+        msg.setWindowTitle("Erreur")
+        msg.exec()
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
-
     widget = AudioStream()
     widget.resize(1300, 700)
     widget.setWindowTitle('Analyse audio en temps réel')
     widget.show()
-
     sys.exit(app.exec())

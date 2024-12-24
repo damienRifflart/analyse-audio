@@ -4,7 +4,7 @@
   <br>
 </h1>
 
-<h4 align="center">Permet d'analyser, en temps réél, les sons grâce à la FTT.</h4>
+<h4 align="center">Permet d'analyser, en temps réél, les sons grâce à la FFT.</h4>
 
 ## Avancement
 
@@ -17,6 +17,8 @@
 * 22/12/24: Bouton pause fonctionnel pour les deux tabs. Création de la fonction analyse_fft pour en déduire une fréquence fondamentale (marche 2/3 du temps mais capte malgré tout des fréquences issues du bruit).
 
 * 23/12/24: Widget pour montrer la fréquence fondamentale et indication sur la note jouée. Ajout d'un tab paramètre pour modifier notamment les paramètres d'analyses de la FFT. Message d'erreur si la fréquence min est supérieur à la fréquence max et inversement.
+
+* 24/12/24: Ajout d'un tab pour lire et faire la fft sur un fichier disponible localement. Clean le code et création de fonctions qui sont utilisées pour plusieurs tab (ex: une fonction fft pour le tab analyse et fichier).
 
 ## Mes autres projets...
 
