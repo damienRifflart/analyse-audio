@@ -51,9 +51,10 @@ class AudioStream(QtWidgets.QWidget):
         self.fundamental_freqs = {'live': [], 'file': []}
         self.fundamental_freq = {'live': None, 'file': None}
         self.fundamental_label = {'live': '', 'file': ''}
-        self.noise_threshold = 30000
         self.min_freq = 250
         self.max_freq = 1100
+
+        self.tab_widget.currentChanged.connect(self.on_tab_change)
 
         self.initTabAcquisition()
         self.initTabAnalyse()
@@ -69,6 +70,13 @@ class AudioStream(QtWidgets.QWidget):
         note = notes[note]
         octave = (note_number + 8 ) // len(notes)
         return f"{note}{octave}"
+
+    def on_tab_change(self, index):
+        current_tab = self.tab_widget.tabText(index)
+        if current_tab == "Acquisition" or current_tab == "Analyse":
+            self.timer.start()
+        else:
+            self.timer.stop()
 
     def createPlotWidget(self, x_label="", y_label="Amplitude (UA)"):
         # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
@@ -98,16 +106,12 @@ class AudioStream(QtWidgets.QWidget):
         plot = self.createPlotWidget(x_label="Fréquences (Hz)")
         self.curve_analyse = plot.plot(pen='cyan')# on plot une ligne ou courbe qui contiendra les valeurs
 
-        # ligne pour le seuil de bruit
-        self.noise_threshold_line = pg.InfiniteLine(self.noise_threshold, angle=0, pen=pg.mkPen('r', width=2))
-        plot.addItem(self.noise_threshold_line)
-
         # ligne pour la fréquence minimale
         self.min_freq_line = pg.InfiniteLine(self.min_freq, angle=90, pen=pg.mkPen('g', width=2))
         plot.addItem(self.min_freq_line)
 
         # ligne pour la fréquence maximale
-        self.max_freq_line = pg.InfiniteLine(self.max_freq, angle=90, pen=pg.mkPen('g', width=2))
+        self.max_freq_line = pg.InfiniteLine(self.max_freq, angle=90, pen=pg.mkPen('y', width=2))
         plot.addItem(self.max_freq_line)
 
         # panel à droite pour afficher les fréquences détéctées
@@ -118,6 +122,10 @@ class AudioStream(QtWidgets.QWidget):
         self.fundamental_label['live'].setAlignment(QtCore.Qt.AlignCenter)
         self.fundamental_label['live'].setStyleSheet("font-size: 30px;")
         freq_layout.addWidget(self.fundamental_label['live']) # ajoute le label au layout
+
+        generate_sound_btn = QtWidgets.QPushButton("Générer le son")
+        generate_sound_btn.clicked.connect(lambda: self.generate_sound('live'))
+        freq_layout.addWidget(generate_sound_btn)
     
         layout.addWidget(plot, stretch=2) # prend 2/3 du tab
         layout.addWidget(self.freq_panel, stretch=1) # prend 1/3 du tab
@@ -142,11 +150,42 @@ class AudioStream(QtWidgets.QWidget):
         self.fundamental_label['file'].setAlignment(QtCore.Qt.AlignCenter)
         self.fundamental_label['file'].setStyleSheet("font-size: 30px;")
         freq_layout.addWidget(self.fundamental_label['file']) # ajoute le label au layout
+
+        generate_sound_btn = QtWidgets.QPushButton("Générer le son")
+        generate_sound_btn.clicked.connect(lambda: self.generate_sound('file'))
+        freq_layout.addWidget(generate_sound_btn)
     
         h_layout.addWidget(plot, stretch=2) # prend 2/3 du tab
         h_layout.addWidget(self.freq_panel_file, stretch=1) # prend 1/3 du tab
 
         layout.addLayout(h_layout)
+
+    def initTabParametres(self):
+        layout = QVBoxLayout(self.parametreTab)
+
+        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QSlider.html
+        # slider pour la fréquence minimale
+        self.min_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.min_freq_slider.setMinimum(0)
+        self.min_freq_slider.setMaximum(3000)
+        self.min_freq_slider.setValue(self.min_freq)
+        self.min_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.min_freq_slider.setTickInterval(100)
+        self.min_freq_slider.valueChanged.connect(self.update_min_freq)
+
+        # slider pour la fréquence maximale
+        self.max_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.max_freq_slider.setMinimum(0)
+        self.max_freq_slider.setMaximum(3000)
+        self.max_freq_slider.setValue(self.max_freq)
+        self.max_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
+        self.max_freq_slider.setTickInterval(100)
+        self.max_freq_slider.valueChanged.connect(self.update_max_freq)
+
+        layout.addWidget(QLabel("Fréquence minimale"))
+        layout.addWidget(self.min_freq_slider)
+        layout.addWidget(QLabel("Fréquence maximale"))
+        layout.addWidget(self.max_freq_slider)
 
     def process_audio_data(self, data, data_type='int16'):
         # conversion des données en un tableau lisible par Numpy
@@ -262,44 +301,6 @@ class AudioStream(QtWidgets.QWidget):
             self.show_error_message(f"Erreur lors de l'ouverture du fichier: {e}")
         except Exception as e:
             self.show_error_message(f"Erreur lors du traitement du fichier: {e}")
-
-    def initTabParametres(self):
-        layout = QVBoxLayout(self.parametreTab)
-
-        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QSlider.html
-        # slider pour le seuil de bruit
-        self.noise_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.noise_slider.setMinimum(0)
-        self.noise_slider.setMaximum(40000)
-        self.noise_slider.setValue(self.noise_threshold)
-        self.noise_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
-        self.noise_slider.setTickInterval(2500)
-        self.noise_slider.valueChanged.connect(self.update_noise)
-
-        # slider pour la fréquence minimale
-        self.min_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.min_freq_slider.setMinimum(0)
-        self.min_freq_slider.setMaximum(3000)
-        self.min_freq_slider.setValue(self.min_freq)
-        self.min_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
-        self.min_freq_slider.setTickInterval(100)
-        self.min_freq_slider.valueChanged.connect(self.update_min_freq)
-
-        # slider pour la fréquence maximale
-        self.max_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.max_freq_slider.setMinimum(0)
-        self.max_freq_slider.setMaximum(3000)
-        self.max_freq_slider.setValue(self.max_freq)
-        self.max_freq_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
-        self.max_freq_slider.setTickInterval(100)
-        self.max_freq_slider.valueChanged.connect(self.update_max_freq)
-
-        layout.addWidget(QLabel("Seuil de bruit"))
-        layout.addWidget(self.noise_slider)
-        layout.addWidget(QLabel("Fréquence minimale"))
-        layout.addWidget(self.min_freq_slider)
-        layout.addWidget(QLabel("Fréquence maximale"))
-        layout.addWidget(self.max_freq_slider)
     
     def open_file_dialog(self):
         # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QFileDialog.html
@@ -315,10 +316,25 @@ class AudioStream(QtWidgets.QWidget):
             self.timer.stop()
         else:
             self.timer.start()
-    
-    def update_noise(self, value):
-        self.noise_threshold = value
-        self.noise_threshold_line.setValue(value)
+
+    def generate_sound(self, mode):
+            if self.fundamental_freq[mode] != None:
+                duration = 1  # en secondes
+                sample_rate = 44100  # échantillons par seconde
+
+                t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+                audio_data = 0.5 * np.sin(2 * np.pi * self.fundamental_freq[mode] * t)
+
+                stream = self.audio.open(format=pyaudio.paFloat32,
+                            channels=1,
+                            rate=sample_rate,
+                            output=True)
+
+                stream.write(audio_data.astype(np.float32).tobytes())
+                stream.stop_stream()
+                stream.close()
+            else:
+                self.show_error_message('Aucune fréquence fondamentale détéctée.')
 
     def update_min_freq(self, value):
         if value <= self.max_freq:

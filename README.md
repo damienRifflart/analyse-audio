@@ -20,6 +20,8 @@
 
 * 24/12/24: Ajout d'un tab pour lire et faire la fft sur un fichier disponible localement. Clean le code et création de fonctions qui sont utilisées pour plusieurs tab (ex: une fonction fft pour le tab analyse et fichier).
 
+* 25/12/24: Met l'acquisition et l'analyse de données en temps réel en pause lorsque l'utilisateur n'est pas sur un des deux tabs, afin d'utiliser le moins de ressources possibles. Bouton permettant de générer la fréquence fondamentale du son entendu (pour vérifier s'il correspond). Enlever le seuil minimum de bruit comme il est calculé dynamiquement dans analyse_fft. Changer les couleurs des fréquences min et max.
+
 ## Mes autres projets...
 
 - [Shapy](https://github.com/damienRifflart/Shapy) - An iOs sport application.
