@@ -55,6 +55,7 @@ class AudioStream(QtWidgets.QWidget):
         self.max_freq = 1100
 
         self.tab_widget.currentChanged.connect(self.on_tab_change)
+        self.file_path = None
 
         self.initTabAcquisition()
         self.initTabAnalyse()
@@ -154,6 +155,10 @@ class AudioStream(QtWidgets.QWidget):
         generate_sound_btn = QtWidgets.QPushButton("Générer le son")
         generate_sound_btn.clicked.connect(lambda: self.generate_sound('file'))
         freq_layout.addWidget(generate_sound_btn)
+
+        generate_file_sound_btn = QtWidgets.QPushButton("Générer le son du fichier")
+        generate_file_sound_btn.clicked.connect(lambda: self.generate_file_sound())
+        freq_layout.addWidget(generate_file_sound_btn)
     
         h_layout.addWidget(plot, stretch=2) # prend 2/3 du tab
         h_layout.addWidget(self.freq_panel_file, stretch=1) # prend 1/3 du tab
@@ -308,6 +313,7 @@ class AudioStream(QtWidgets.QWidget):
         file_dialog.setNameFilter("Audio Files (*.wav)")
         if file_dialog.exec():
             self.process_file(file_dialog.selectedFiles()[0])
+            self.file_path = file_dialog.selectedFiles()[0]
 
     def pause(self):
         self.pause_state = not self.pause_state
@@ -335,6 +341,28 @@ class AudioStream(QtWidgets.QWidget):
                 stream.close()
             else:
                 self.show_error_message('Aucune fréquence fondamentale détéctée.')
+
+    def generate_file_sound(self):
+        if self.file_path: # vérifie s'il y a bien un fichier audio ouvert
+            # https://docs.python.org/3/library/wave.html#wave.open
+            wf = wave.open(self.file_path, 'rb')
+
+            # https://people.csail.mit.edu/hubert/pyaudio/docs/#id3
+            stream = self.audio.open(format=self.audio.get_format_from_width(wf.getsampwidth()),
+                                    channels=wf.getnchannels(),
+                                    rate=wf.getframerate(),
+                                    output=True)
+
+
+            data = wf.readframes(self.chunk)
+            while data:
+                stream.write(data)
+                data = wf.readframes(self.chunk)
+            stream.stop_stream()
+            stream.close()
+            wf.close()
+        else:
+            self.show_error_message('Aucun fichier audio ouvert.')
 
     def update_min_freq(self, value):
         if value <= self.max_freq:

@@ -22,6 +22,8 @@
 
 * 25/12/24: Met l'acquisition et l'analyse de données en temps réel en pause lorsque l'utilisateur n'est pas sur un des deux tabs, afin d'utiliser le moins de ressources possibles. Bouton permettant de générer la fréquence fondamentale du son entendu (pour vérifier s'il correspond). Enlever le seuil minimum de bruit comme il est calculé dynamiquement dans analyse_fft. Changer les couleurs des fréquences min et max.
 
+* 27/12/24: Créé un bouton supplémentaire dans le tab 'fichier', pour jouer le son initial du fichier et le comparer plus aisément avec la fréquence entendue.
+
 ## Mes autres projets...
 
 - [Shapy](https://github.com/damienRifflart/Shapy) - An iOs sport application.
