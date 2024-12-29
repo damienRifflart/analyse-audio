@@ -1,11 +1,31 @@
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox
+from PySide6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QLabel, QMessageBox, QApplication
 import pyaudio, math, sys, numpy as np, struct, pyqtgraph as pg, wave
 
 class AudioStream(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()        
 
+        # https://stackoverflow.com/questions/69258587/change-qt-stylesheet-for-all-buttons-of-a-widget-on-button-press
+        # stylesheet pour l'app
+        QApplication.instance().setStyleSheet("""
+            QPushButton {
+                color: #fff;
+                background-color: #3972c7;
+                border-radius: 3px;
+                padding: 5px 10px;
+                width: auto;
+                font-size: 16px;
+            }
+                              
+            QPushButton:hover {
+                background-color: #3266b4;
+            }
+                              
+            QPushButton:pressed {
+                background-color: #2b5697;
+            }
+            """)
         # tabs
         self.tab_widget = QTabWidget()
         
@@ -38,10 +58,12 @@ class AudioStream(QtWidgets.QWidget):
         )
 
         # button pause
-        self.pause_state = False
         self.pause_btn = QtWidgets.QPushButton("Pause ⏸️")
         self.pause_btn.clicked.connect(self.pause)
-        self.pause_btn.setFixedWidth(100)
+        self.pause_btn.setMaximumWidth(120)
+
+        self.tab_widget.currentChanged.connect(self.on_tab_change)
+        self.pause_state = False
 
         layout = QtWidgets.QVBoxLayout(self) # créé un layout vertical
         layout.addWidget(self.pause_btn)
@@ -61,32 +83,6 @@ class AudioStream(QtWidgets.QWidget):
         self.initTabAnalyse()
         self.initTabFichier()
         self.initTabParametres()
-
-    def freq_to_note(self, freq):
-        # https://stackoverflow.com/questions/64505024/turning-frequencies-into-notes-in-python
-        notes = ['La', 'La#', 'Si', 'Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#']
-        note_number = 12 * math.log2(freq / 440) + 49  
-        note_number = round(note_number)
-        note = (note_number - 1 ) % len(notes)
-        note = notes[note]
-        octave = (note_number + 8 ) // len(notes)
-        return f"{note}{octave}"
-
-    def on_tab_change(self, index):
-        current_tab = self.tab_widget.tabText(index)
-        if current_tab == "Acquisition" or current_tab == "Analyse":
-            self.timer.start()
-        else:
-            self.timer.stop()
-
-    def createPlotWidget(self, x_label="", y_label="Amplitude (UA)"):
-        # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
-        # graphique
-        plot = pg.PlotWidget() # composant de PyQtGraph: permet d'afficher des graphiques 2D
-        plot.setYRange(-4000, 4000) # comme c'est codé sur 16 bits: 2^15 = 32 768. Les valeurs vont de -32 768 au min à 32 767 au max
-        plot.setLabel("bottom", x_label)
-        plot.setLabel("left", y_label)
-        return plot
 
     def initTabAcquisition(self):
         layout = QVBoxLayout(self.acquisitionTab)
@@ -171,6 +167,68 @@ class AudioStream(QtWidgets.QWidget):
         # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QSlider.html
         # slider pour la fréquence minimale
         self.min_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+
+        #https://doc.qt.io/qt-6/stylesheet-examples.html#customizing-qslider
+        self.min_freq_slider.setStyleSheet("""
+
+            QSlider::groove:horizontal {
+                border: 1px solid #bbb;
+                background: white;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 #66e, stop: 1 #bbf);
+                background: qlineargradient(x1: 0, y1: 0.2, x2: 1, y2: 1,
+                    stop: 0 #bbf, stop: 1 #55f);
+                border: 1px solid #777;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::add-page:horizontal {
+                background: #fff;
+                border: 1px solid #777;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #eee, stop:1 #ccc);
+                border: 1px solid #777;
+                width: 13px;
+                margin-top: -2px;
+                margin-bottom: -2px;
+                border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #fff, stop:1 #ddd);
+                border: 1px solid #444;
+                border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal:disabled {
+                background: #bbb;
+                border-color: #999;
+            }
+
+            QSlider::add-page:horizontal:disabled {
+                background: #eee;
+                border-color: #999;
+            }
+
+            QSlider::handle:horizontal:disabled {
+                background: #eee;
+                border: 1px solid #aaa;
+                border-radius: 4px;
+            }                           
+        """)
+
         self.min_freq_slider.setMinimum(0)
         self.min_freq_slider.setMaximum(3000)
         self.min_freq_slider.setValue(self.min_freq)
@@ -180,6 +238,65 @@ class AudioStream(QtWidgets.QWidget):
 
         # slider pour la fréquence maximale
         self.max_freq_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.max_freq_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #bbb;
+                background: white;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal {
+                background: qlineargradient(x1: 0, y1: 0,    x2: 0, y2: 1,
+                    stop: 0 #66e, stop: 1 #bbf);
+                background: qlineargradient(x1: 0, y1: 0.2, x2: 1, y2: 1,
+                    stop: 0 #bbf, stop: 1 #55f);
+                border: 1px solid #777;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::add-page:horizontal {
+                background: #fff;
+                border: 1px solid #777;
+                height: 10px;
+                border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #eee, stop:1 #ccc);
+                border: 1px solid #777;
+                width: 13px;
+                margin-top: -2px;
+                margin-bottom: -2px;
+                border-radius: 4px;
+            }
+
+            QSlider::handle:horizontal:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #fff, stop:1 #ddd);
+                border: 1px solid #444;
+                border-radius: 4px;
+            }
+
+            QSlider::sub-page:horizontal:disabled {
+                background: #bbb;
+                border-color: #999;
+            }
+
+            QSlider::add-page:horizontal:disabled {
+                background: #eee;
+                border-color: #999;
+            }
+
+            QSlider::handle:horizontal:disabled {
+                background: #eee;
+                border: 1px solid #aaa;
+                border-radius: 4px;
+            }                           
+        """)
+
         self.max_freq_slider.setMinimum(0)
         self.max_freq_slider.setMaximum(3000)
         self.max_freq_slider.setValue(self.max_freq)
@@ -187,10 +304,81 @@ class AudioStream(QtWidgets.QWidget):
         self.max_freq_slider.setTickInterval(100)
         self.max_freq_slider.valueChanged.connect(self.update_max_freq)
 
-        layout.addWidget(QLabel("Fréquence minimale"))
+        self.min_freq_label = QLabel(f"Fréquence minimale: {self.min_freq} Hz")
+        self.max_freq_label = QLabel(f"Fréquence maximale: {self.max_freq} Hz")
+        self.min_freq_label.setStyleSheet("font-size: 30px;")
+        self.max_freq_label.setStyleSheet("font-size: 30px;")
+
+        # bouton pour reset les paramètres par défaut
+        reset_btn = QtWidgets.QPushButton("Mettre les paramètres par défaut")
+        reset_btn.setFixedWidth(250)
+        reset_btn.clicked.connect(self.reset_parameters)
+
+        layout.addWidget(reset_btn, alignment=QtCore.Qt.AlignRight)
+        layout.addWidget(self.min_freq_label)
         layout.addWidget(self.min_freq_slider)
-        layout.addWidget(QLabel("Fréquence maximale"))
+        layout.addWidget(self.max_freq_label)
         layout.addWidget(self.max_freq_slider)
+
+    def update_acquisition(self):
+        if not self.pause_state:
+            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
+            # self.chunk représente le nombre d'échantillons à capturer
+            data = self.stream.read(self.chunk)
+            data_table = self.process_audio_data(data) # tableau numpy
+            self.curve_acquisition.setData(data_table) # mise à jour des valeurs du plot
+
+    def update_analyse(self):
+        if not self.pause_state:
+            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
+            # self.chunk représente le nombre d'échantillons à capturer
+            data = self.stream.read(self.chunk)
+            data_table = self.process_audio_data(data) # tableau numpy
+            freqs, fft_data = self.analyse_fft(data_table, 'live') # fft
+            self.curve_analyse.setData(x=freqs, y=fft_data) # mise à jour des valeurs du plot
+            self.curve_analyse.getViewBox().autoRange()
+
+    def process_file(self, file_path):
+        try:
+            with wave.open(file_path, 'rb') as wf: # ouvrir le fichier audio en lecture seule (rb = read binary)
+                num_frames = wf.getnframes() # return le nombre de frames (échantillons) dans le fichier audio
+                sampwidth = wf.getsampwidth() # return le nombre d'octets par échantillons
+                num_channels = wf.getnchannels() # return le nombre de channels (1 = mono, 2 = stéréo)
+                
+                frames = wf.readframes(num_frames)
+                # connaître le nombre d'octets par échantillon
+                if sampwidth == 1: # si il y a un octet par échantillon
+                    format = f"{num_frames * num_channels}B"  # 8-bit
+                elif sampwidth == 2: # si il y a deux...
+                    format = f"{num_frames * num_channels}h"  # 16-bit audio
+                elif sampwidth == 3:
+                    format = f"{num_frames * num_channels}i"  # 24-bit audio
+                elif sampwidth == 4:
+                    format = f"{num_frames * num_channels}i"  # 32-bit audio
+                else:
+                    print(f"Nombre d'échantillons non supportée: {sampwidth} octets.")
+                    
+                # https://docs.python.org/3/library/struct.html#struct.unpack
+                unpacked_data = struct.unpack(format, frames)
+                if sampwidth == 1:
+                    data = np.array(unpacked_data, dtype=np.int8)
+                elif sampwidth == 2:
+                    data = np.array(unpacked_data, dtype=np.int16)
+                elif sampwidth == 3 or 4:
+                    data = np.array(unpacked_data, dtype=np.int32)
+
+                # garder uniquement un canal (flux mono)
+                if num_channels == 2:
+                    data = data[::2]  # on prend un échantillon sur deux
+
+                freqs, fft_data = self.analyse_fft(data, 'file')
+                self.file_curve.setData(x=freqs, y=fft_data)
+                self.file_curve.getViewBox().autoRange()
+        except wave.Error as e:
+            self.show_error_message(f"Erreur lors de l'ouverture du fichier: {e}")
+        except Exception as e:
+            self.show_error_message(f"Erreur lors du traitement du fichier: {e}")
+
 
     def process_audio_data(self, data, data_type='int16'):
         # conversion des données en un tableau lisible par Numpy
@@ -241,87 +429,15 @@ class AudioStream(QtWidgets.QWidget):
         # pour avoir une valeur représentative, on fait la moyenne de 3 fréquences mesurées
         if len(self.fundamental_freqs[mode]) > 3:
             self.fundamental_freq[mode] = np.mean(self.fundamental_freqs[mode])
-            note = self.freq_to_note(self.fundamental_freq[mode])
-            label = self.fundamental_label[mode]
+            if self.fundamental_freq[mode]:
+                note = self.freq_to_note(self.fundamental_freq[mode])
+                label = self.fundamental_label[mode]
 
-            # on met à jour le label avec la fréquence fondamentale détéctée
-            label.setText(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq[mode]:.2f} Hz ({note})")
+                # on met à jour le label avec la fréquence fondamentale détéctée
+                label.setText(f"Fréquence fondamentale détéctée: \n {self.fundamental_freq[mode]:.2f} Hz ({note})")
             self.fundamental_freqs[mode] = []
             
         return freqs, fft_data
-
-    def update_acquisition(self):
-        if not self.pause_state:
-            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
-            # self.chunk représente le nombre d'échantillons à capturer
-            data = self.stream.read(self.chunk)
-            data_table = self.process_audio_data(data) # tableau numpy
-            self.curve_acquisition.setData(data_table) # mise à jour des valeurs du plot
-
-    def update_analyse(self):
-        if not self.pause_state:
-            # https://people.csail.mit.edu/hubert/pyaudio/docs/#pyaudio.PyAudio.Stream.read
-            # self.chunk représente le nombre d'échantillons à capturer
-            data = self.stream.read(self.chunk)
-            data_table = self.process_audio_data(data) # tableau numpy
-            freqs, fft_data = self.analyse_fft(data_table, 'live') # fft
-            self.curve_analyse.setData(x=freqs, y=fft_data) # mise à jour des valeurs du plot
-
-    def process_file(self, file_path):
-        try:
-            with wave.open(file_path, 'rb') as wf: # ouvrir le fichier audio en lecture seule (rb = read binary)
-                num_frames = wf.getnframes() # return le nombre de frames (échantillons) dans le fichier audio
-                sampwidth = wf.getsampwidth() # return le nombre d'octets par échantillons
-                num_channels = wf.getnchannels() # return le nombre de channels (1 = mono, 2 = stéréo)
-                
-                frames = wf.readframes(num_frames)
-                # connaître le nombre d'octets par échantillon
-                if sampwidth == 1: # si il y a un octet par échantillon
-                    format = f"{num_frames * num_channels}B"  # 8-bit
-                elif sampwidth == 2: # si il y a deux...
-                    format = f"{num_frames * num_channels}h"  # 16-bit audio
-                elif sampwidth == 3:
-                    format = f"{num_frames * num_channels}i"  # 24-bit audio
-                elif sampwidth == 4:
-                    format = f"{num_frames * num_channels}i"  # 32-bit audio
-                else:
-                    print(f"Nombre d'échantillons non supportée: {sampwidth} octets.")
-                    
-                # https://docs.python.org/3/library/struct.html#struct.unpack
-                unpacked_data = struct.unpack(format, frames)
-                if sampwidth == 1:
-                    data = np.array(unpacked_data, dtype=np.int8)
-                elif sampwidth == 2:
-                    data = np.array(unpacked_data, dtype=np.int16)
-                elif sampwidth == 3 or 4:
-                    data = np.array(unpacked_data, dtype=np.int32)
-
-                # garder uniquement un canal (flux mono)
-                if num_channels == 2:
-                    data = data[::2]  # on prend un échantillon sur deux
-
-                freqs, fft_data = self.analyse_fft(data, 'file')
-                self.file_curve.setData(x=freqs, y=fft_data)
-        except wave.Error as e:
-            self.show_error_message(f"Erreur lors de l'ouverture du fichier: {e}")
-        except Exception as e:
-            self.show_error_message(f"Erreur lors du traitement du fichier: {e}")
-    
-    def open_file_dialog(self):
-        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QFileDialog.html
-        file_dialog = QtWidgets.QFileDialog(self)
-        file_dialog.setNameFilter("Audio Files (*.wav)")
-        if file_dialog.exec():
-            self.process_file(file_dialog.selectedFiles()[0])
-            self.file_path = file_dialog.selectedFiles()[0]
-
-    def pause(self):
-        self.pause_state = not self.pause_state
-        self.pause_btn.setText("Démarrer ▶️" if self.pause_state else "Pause ⏸️")
-        if self.pause_state:
-            self.timer.stop()
-        else:
-            self.timer.start()
 
     def generate_sound(self, mode):
             if self.fundamental_freq[mode] != None:
@@ -364,23 +480,80 @@ class AudioStream(QtWidgets.QWidget):
         else:
             self.show_error_message('Aucun fichier audio ouvert.')
 
+    def freq_to_note(self, freq):
+        # https://stackoverflow.com/questions/64505024/turning-frequencies-into-notes-in-python
+        notes = ['La', 'La#', 'Si', 'Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#']
+        note_number = 12 * math.log2(freq / 440) + 49  
+        note_number = round(note_number)
+        note = (note_number - 1 ) % len(notes)
+        note = notes[note]
+        octave = (note_number + 8 ) // len(notes)
+        return f"{note}{octave}"
+
+    def on_tab_change(self, index):
+        current_tab = self.tab_widget.tabText(index)
+        if current_tab == "Acquisition" or current_tab == "Analyse":
+            self.timer.start()
+            self.pause_btn.show()
+        else:
+            self.timer.stop()
+            self.pause_btn.hide()
+
+    def createPlotWidget(self, x_label="", y_label="Amplitude (UA)"):
+        # https://pyqtgraph.readthedocs.io/en/latest/getting_started/plotting.html
+        # graphique
+        plot = pg.PlotWidget() # composant de PyQtGraph: permet d'afficher des graphiques 2D
+        plot.setYRange(-4000, 4000) # comme c'est codé sur 16 bits: 2^15 = 32 768. Les valeurs vont de -32 768 au min à 32 767 au max
+        plot.setLabel("bottom", x_label)
+        plot.setLabel("left", y_label)
+        return plot
+
+    def open_file_dialog(self):
+        # https://doc.qt.io/qtforpython-5/PySide2/QtWidgets/QFileDialog.html
+        file_dialog = QtWidgets.QFileDialog(self)
+        file_dialog.setNameFilter("Audio Files (*.wav)")
+        if file_dialog.exec():
+            self.process_file(file_dialog.selectedFiles()[0])
+            self.file_path = file_dialog.selectedFiles()[0]
+
+    def pause(self):
+        self.pause_state = not self.pause_state
+        self.pause_btn.setText("Démarrer ▶️" if self.pause_state else "Pause ⏸️")
+        if self.pause_state:
+            self.timer.stop()
+        else:
+            self.timer.start()
+
     def update_min_freq(self, value):
         if value <= self.max_freq:
             self.min_freq = value
             self.min_freq_line.setValue(value)
+            self.min_freq_label.setText(f"Fréquence minimale: {value} Hz")
         else:
             self.show_error_message('La fréquence minimale doit être inférieure à la fréquence maximale.')
-            self.min_freq_slider.setValue(self.max_freq-100)
-            self.min_freq = self.max_freq-100
+            self.min_freq_slider.setValue(self.max_freq - 100)
+            self.min_freq = self.max_freq - 100
 
     def update_max_freq(self, value):
         if value >= self.min_freq:
             self.max_freq = value
             self.max_freq_line.setValue(value)
+            self.max_freq_label.setText(f"Fréquence maximale: {value} Hz")
         else:
             self.show_error_message('La fréquence maximale doit être supérieure à la fréquence minimale.')
             self.max_freq_slider.setValue(self.min_freq+100)
             self.max_freq = self.min_freq+100
+
+    def reset_parameters(self):
+        self.min_freq = 250
+        self.min_freq_line.setValue(250)
+        self.min_freq_slider.setValue(250)
+        self.min_freq_label.setText("Fréquence minimale: 250 Hz")
+        
+        self.max_freq = 1100
+        self.max_freq_line.setValue(1100)
+        self.max_freq_slider.setValue(1100)
+        self.max_freq_label.setText("Fréquence maximale: 1100 Hz")
 
     def show_error_message(self, message):
         msg = QMessageBox()

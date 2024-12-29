@@ -24,6 +24,9 @@
 
 * 27/12/24: Créé un bouton supplémentaire dans le tab 'fichier', pour jouer le son initial du fichier et le comparer plus aisément avec la fréquence entendue.
 
+* 29/12/24: Styled les boutons, sliders et textes. Changer la place des fonctions pour que ce soit plus logique. Bouton pour reset les paramètres par défault.
+
+
 ## Mes autres projets...
 
 - [Shapy](https://github.com/damienRifflart/Shapy) - An iOs sport application.
