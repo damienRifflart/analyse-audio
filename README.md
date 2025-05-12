@@ -6,6 +6,13 @@
 
 <h4 align="center">Permet d'analyser, en temps réél, les sons grâce à la FFT.</h4>
 
+## Screenshots
+Tab analyse
+<img src="screenshots/12-05-25-01.png"></img>
+
+Tab fichier
+<img src="screenshots/12-05-25-02.png"></img>
+
 ## Avancement
 
 * 11/12/24: Mise en place du but, de comment y arriver (avec quel bibliothèques/frameworks). Création d'une fenêtre de base avec https://doc.qt.io/qtforpython-6/gettingstarted.html#getting-started (random hello)
